@@ -16,7 +16,7 @@ const navItems = [
 		href: '/schedule',
 		children: [
 			{ href: '/schedule/nba', label: 'NBA Schedule' },
-			{ href: '/schedule/weekly', label: 'NBA Weekly Schedule' },
+			{ href: '/schedule/weekly', label: 'Weekly Advanced Schedule' },
 			{ href: '/schedule/playoffs', label: 'Playoff Schedule' }
 		]
 	},

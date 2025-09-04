@@ -1,20 +1,14 @@
 /* eslint-disable no-console */
 // scripts/build-weekly-team-games.cjs
-// Usage:
-//   node scripts/build-weekly-team-games.cjs
-//   node scripts/build-weekly-team-games.cjs --feed=https://fixturedownload.com/feed/json/nba-2025 --weeks=23
-//   node scripts/build-weekly-team-games.cjs --week1=2025-10-20 --start=2025-10-20 --end=2026-04-15
-//
-// ENV overrides:
-//   FEED=... WEEKS=23 WEEK1=YYYY-MM-DD START=YYYY-MM-DD END=YYYY-MM-DD
-//
-// Output:
-//   ./public/data/nba_2025_weekly_games.json
-//
-// Notes:
-// - W1 (index 0) is the Monday of the first week (auto-detected unless --week1/WEEK1 is given).
-// - Weeks are Monday→Sunday.
-// - Only games whose teams map to an NBA team are counted.
+// Output (per team):
+// {
+//   team: "Denver Nuggets",
+//   team_abv: "DEN",
+//   weekly_games: [2,3,...],           // Mon→Sun weekly totals
+//   "week_1": ["0","@UTA","0","PHX","0","0","0"], // Mon..Sun (0 or opponent abv, '@' if away)
+//   "week_2": ["LAL","0","@SAC","0","0","MIN","0"],
+//   ...
+// }
 
 const fs = require('fs/promises');
 const path = require('path');
@@ -27,8 +21,8 @@ const FEED_DEFAULT =
 	'https://fixturedownload.com/feed/json/nba-2025';
 const WEEKS_TARGET = Number(process.env.WEEKS || getFlag('weeks') || 23);
 const WEEK1_OVERRIDE = process.env.WEEK1 || getFlag('week1') || ''; // YYYY-MM-DD
-const RANGE_START = process.env.START || getFlag('start') || ''; // optional YYYY-MM-DD (inclusive)
-const RANGE_END = process.env.END || getFlag('end') || ''; // optional YYYY-MM-DD (inclusive)
+const RANGE_START = process.env.START || getFlag('start') || ''; // YYYY-MM-DD inclusive
+const RANGE_END = process.env.END || getFlag('end') || ''; // YYYY-MM-DD inclusive
 
 const OUT_FILE = path.join(
 	process.cwd(),
@@ -71,7 +65,7 @@ const NAME_TO_ABV = {
 	'Washington Wizards': 'WAS'
 };
 
-// Common aliases → Full name (feed variability)
+// Aliases → Full name (to normalize feed variations)
 const ALIAS_TO_NAME = {
 	'Los Angeles Clippers': 'LA Clippers',
 	'LA Lakers': 'Los Angeles Lakers',
@@ -105,9 +99,8 @@ const ALIAS_TO_NAME = {
 	Boston: 'Boston Celtics',
 	Washington: 'Washington Wizards',
 	'New York': 'New York Knicks',
-	'Oklahoma City Thunder (IST)': 'Oklahoma City Thunder' // safety
+	'Oklahoma City Thunder (IST)': 'Oklahoma City Thunder'
 };
-
 const ABV_TO_NAME = Object.fromEntries(
 	Object.entries(NAME_TO_ABV).map(([n, a]) => [a, n])
 );
@@ -118,15 +111,12 @@ const ABV_TO_NAME = Object.fromEntries(
 		console.log('Fetching feed:', FEED_DEFAULT);
 		const games = await getJSON(FEED_DEFAULT);
 
-		// Expected feed fields (FixtureDownload JSON):
-		// { "DateUtc":"2025-10-22 23:00:00 UTC", "HomeTeam":"Denver Nuggets", "AwayTeam":"Phoenix Suns", ... }
 		const parsed = games
 			.map(normalizeGame)
 			.filter(Boolean)
 			.filter((g) => {
 				if (RANGE_START && g.date < toUtcMidnight(RANGE_START)) return false;
 				if (RANGE_END && g.date > toUtcEndOfDay(RANGE_END)) return false;
-				// Only count games where both teams are recognized NBA teams:
 				return !!(
 					g.home &&
 					g.away &&
@@ -135,74 +125,106 @@ const ABV_TO_NAME = Object.fromEntries(
 				);
 			});
 
-		if (!parsed.length) {
+		if (!parsed.length)
 			throw new Error(
 				'No valid games parsed from the feed. Check feed URL or date filters.'
 			);
-		}
 
-		// Determine week1 Monday (UTC)
+		// Determine Week 1 Monday (UTC)
 		let week1MondayUTC;
 		if (WEEK1_OVERRIDE) {
 			week1MondayUTC = toUtcMonday(WEEK1_OVERRIDE);
-			console.log(
-				'Using WEEK1 override (Monday):',
-				week1MondayUTC.toISOString().slice(0, 10)
-			);
+			console.log('Using WEEK1 override (Monday):', isoDate(week1MondayUTC));
 		} else {
 			const earliest = new Date(
 				Math.min(...parsed.map((g) => g.date.getTime()))
 			);
-			week1MondayUTC = mondayOfWeek(earliest); // Monday of earliest game
+			week1MondayUTC = mondayOfWeek(earliest);
 			console.log(
 				'Auto Week1 (Monday of earliest game):',
-				week1MondayUTC.toISOString().slice(0, 10)
+				isoDate(week1MondayUTC)
 			);
 		}
 
-		// Build team-week counts
-		const teamKeys = Object.keys(NAME_TO_ABV);
-		const counts = Object.fromEntries(teamKeys.map((name) => [name, []])); // arrays of totals
+		// Data structures:
+		// weeklyTotals[team][week] = number
+		// dailyLabels[team][week] = array(7) with "OPP" or "@OPP" or 0
+		const teamNames = Object.keys(NAME_TO_ABV);
+		const weeklyTotals = Object.fromEntries(teamNames.map((n) => [n, []]));
+		const dailyLabels = Object.fromEntries(
+			teamNames.map((n) => [n, Object.create(null)])
+		);
 
 		let maxWeekIndex = 0;
+
 		for (const g of parsed) {
 			const wIdx = weekIndexFrom(g.date, week1MondayUTC);
 			if (wIdx < 0) continue; // before week1
 			maxWeekIndex = Math.max(maxWeekIndex, wIdx);
-			// bump for both teams
-			bump(counts, g.home, wIdx);
-			bump(counts, g.away, wIdx);
+			const dIdx = mondayZeroDayIndex(g.date); // 0..6 (Mon..Sun)
+
+			// Home team POV
+			addGameForTeam({
+				team: g.home,
+				opponent: g.away,
+				away: false,
+				wIdx,
+				dIdx,
+				weeklyTotals,
+				dailyLabels
+			});
+
+			// Away team POV
+			addGameForTeam({
+				team: g.away,
+				opponent: g.home,
+				away: true,
+				wIdx,
+				dIdx,
+				weeklyTotals,
+				dailyLabels
+			});
 		}
 
-		const weeks = Math.min(WEEKS_TARGET || maxWeekIndex + 1, maxWeekIndex + 1);
+		// Decide weeks to emit (pad to WEEKS_TARGET if given)
+		const weeks = WEEKS_TARGET || maxWeekIndex + 1;
 
-		// Produce final array
-		const out = teamKeys
+		const out = teamNames
 			.map((name) => {
 				const abv = NAME_TO_ABV[name];
-				const arr = counts[name] || [];
-				// normalize length to `weeks` with zeros
-				const weekly = Array.from({ length: weeks }, (_, i) =>
-					Number(arr[i] || 0)
+
+				// Weekly totals
+				const weekly_games = Array.from({ length: weeks }, (_, i) =>
+					Number(weeklyTotals[name]?.[i] || 0)
 				);
-				return { team: name, team_abv: abv, weekly_games: weekly };
+
+				// Week_1..Week_N as 7-length arrays with strings or 0
+				const extras = {};
+				for (let i = 0; i < weeks; i++) {
+					const arr = dailyLabels[name][i] || Array(7).fill(0);
+					const norm7 = Array.from({ length: 7 }, (_, d) => arr[d] ?? 0);
+					extras[`week_${i + 1}`] = norm7;
+				}
+
+				return { team: name, team_abv: abv, weekly_games, ...extras };
 			})
-			// Only keep teams that actually appear in the feed window (optional; comment out if you want all teams)
-			// .filter(row => row.weekly_games.some(v => v > 0))
 			.sort((a, b) => a.team.localeCompare(b.team));
 
 		await fs.mkdir(path.dirname(OUT_FILE), { recursive: true });
 		await fs.writeFile(OUT_FILE, JSON.stringify(out, null, 2));
-		console.log(`Wrote ${out.length} teams × ${weeks} weeks → ${OUT_FILE}`);
+		console.log(
+			`Wrote ${out.length} teams × ${weeks} weeks (+ labeled daily arrays) → ${OUT_FILE}`
+		);
 
-		// Quick sanity print
 		const sample = out.find((t) => t.team_abv === 'DEN') || out[0];
 		if (sample) {
 			console.log(
 				'Sample:',
 				sample.team_abv,
-				sample.weekly_games.slice(0, 6),
-				'...'
+				'W1:',
+				sample.week_1,
+				'weekly:',
+				sample.weekly_games.slice(0, 3)
 			);
 		}
 	} catch (err) {
@@ -225,7 +247,6 @@ function getJSON(url) {
 			return r.json();
 		});
 	}
-	// Fallback for older Node
 	return new Promise((resolve, reject) => {
 		https
 			.get(url, (res) => {
@@ -243,9 +264,7 @@ function getJSON(url) {
 	});
 }
 
-// Normalize one game row from the feed
 function normalizeGame(row) {
-	// Common FixtureDownload fields
 	const rawDate = row.DateUtc || row.Date || row.DateUTC || '';
 	const homeRaw = row.HomeTeam || row.Home || row.homeTeam || '';
 	const awayRaw = row.AwayTeam || row.Away || row.awayTeam || '';
@@ -262,35 +281,21 @@ function normalizeGame(row) {
 
 function normalizeTeamName(s) {
 	if (!s) return '';
-	// If already an exact full-name key
-	if (NAME_TO_ABV[s]) return s;
-
-	// Abbreviation?
+	if (NAME_TO_ABV[s]) return s; // exact full name
 	if (ABV_TO_NAME[s.toUpperCase()]) return ABV_TO_NAME[s.toUpperCase()];
-
-	// Alias mapping
 	if (ALIAS_TO_NAME[s]) return ALIAS_TO_NAME[s];
-
-	// Heuristic: some feeds give city only — try alias map
-	const alias = ALIAS_TO_NAME[s] || '';
-	if (alias) return alias;
-
-	// As a last resort, try to match by suffix (e.g., "Clippers")
+	// Try suffix (e.g., "Clippers")
 	const bySuffix = Object.keys(NAME_TO_ABV).find((full) =>
 		full.endsWith(getLastWord(s))
 	);
 	if (bySuffix) return bySuffix;
-
-	// Unknown team; return empty to filter out
 	return '';
 }
-
 function getLastWord(str) {
 	const parts = str.split(/\s+/).filter(Boolean);
 	return parts.length ? parts[parts.length - 1] : str;
 }
 
-// "2025-10-22 23:00:00 UTC" → Date
 function toUtcDate(s) {
 	if (!s) return null;
 	let clean = String(s).trim();
@@ -299,23 +304,19 @@ function toUtcDate(s) {
 	return isNaN(d) ? null : d;
 }
 
-// Monday of the week (UTC) for a given Date
 function mondayOfWeek(d) {
 	const midnight = new Date(
 		Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())
 	);
-	const day = midnight.getUTCDay(); // 0 Sun, 1 Mon, ..., 6 Sat
-	const diffToMonday = (day + 6) % 7; // 0 if Mon, 1 if Tue, ... 6 if Sun
+	const day = midnight.getUTCDay(); // 0 Sun .. 6 Sat
+	const diffToMonday = (day + 6) % 7; // Mon=0
 	return new Date(midnight.getTime() - diffToMonday * 86400000);
 }
-
-// Parse YYYY-MM-DD to Monday UTC (if not Monday, go back to its Monday)
 function toUtcMonday(ymd) {
 	const [y, m, dd] = ymd.split('-').map(Number);
 	const d = new Date(Date.UTC(y, m - 1, dd));
 	return mondayOfWeek(d);
 }
-
 function toUtcMidnight(ymd) {
 	const [y, m, dd] = ymd.split('-').map(Number);
 	return new Date(Date.UTC(y, m - 1, dd));
@@ -324,7 +325,6 @@ function toUtcEndOfDay(ymd) {
 	const [y, m, dd] = ymd.split('-').map(Number);
 	return new Date(Date.UTC(y, m - 1, dd, 23, 59, 59, 999));
 }
-
 function weekIndexFrom(dUTC, week1MondayUTC) {
 	const msPerDay = 86400000;
 	const dOnly = Date.UTC(
@@ -340,9 +340,35 @@ function weekIndexFrom(dUTC, week1MondayUTC) {
 	const diffDays = Math.floor((dOnly - base) / msPerDay);
 	return Math.floor(diffDays / 7); // 0-based
 }
+function mondayZeroDayIndex(dUTC) {
+	// Mon=0 .. Sun=6
+	return (dUTC.getUTCDay() + 6) % 7;
+}
 
-function bump(counts, teamFullName, wIdx) {
-	if (!NAME_TO_ABV[teamFullName]) return;
-	const arr = counts[teamFullName] || (counts[teamFullName] = []);
-	arr[wIdx] = (arr[wIdx] || 0) + 1;
+function addGameForTeam({
+	team,
+	opponent,
+	away,
+	wIdx,
+	dIdx,
+	weeklyTotals,
+	dailyLabels
+}) {
+	// bump weekly total
+	if (!weeklyTotals[team]) weeklyTotals[team] = [];
+	weeklyTotals[team][wIdx] = (weeklyTotals[team][wIdx] || 0) + 1;
+
+	// label for the day
+	if (!dailyLabels[team][wIdx]) dailyLabels[team][wIdx] = Array(7).fill(0);
+	const oppAbv = NAME_TO_ABV[opponent];
+	const label = away ? `@${oppAbv}` : `${oppAbv}`;
+
+	// If already filled (extremely rare), append with comma
+	const prev = dailyLabels[team][wIdx][dIdx];
+	dailyLabels[team][wIdx][dIdx] =
+		prev && prev !== 0 ? `${prev},${label}` : label;
+}
+
+function isoDate(d) {
+	return d.toISOString().slice(0, 10);
 }
