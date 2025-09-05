@@ -51,21 +51,21 @@ export default function MatchupPlanner() {
 						gridTemplateColumns: 'repeat(12,1fr)'
 					}}
 				>
-					<Field label='My Team' col={4}>
-						<select className='input'>
+					<Field label='My Team' col={3}>
+						<select className='select'>
 							<option>My Team (League A)</option>
 						</select>
 					</Field>
-					<Field label='Opponent' col={4}>
-						<select className='input'>
+					<Field label='Opponent' col={3}>
+						<select className='select'>
 							<option>Rival Team</option>
 							<option>Hoopers United</option>
 						</select>
 					</Field>
-					<Field label='Week Start' col={2}>
+					<Field label='Week Start' col={3}>
 						<input className='input' type='date' defaultValue={week.start} />
 					</Field>
-					<Field label='Week End' col={2}>
+					<Field label='Week End' col={3}>
 						<input className='input' type='date' defaultValue={week.end} />
 					</Field>
 				</div>
@@ -227,7 +227,8 @@ export default function MatchupPlanner() {
         .card{ border:1px solid var(--border); border-radius:16px; background:var(--card); padding:16px 16px; box-shadow: var(--shadow); }
         .card-title{ margin:0 0 10px 0; font-size:16px; font-weight:800; }
         .label{ font-size:12px; color:var(--muted); margin-bottom:6px; display:block; }
-        .input{ width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:10px; background:var(--bg); color:var(--fg); }
+        .input{ width:91%; padding:10px 12px; border:1px solid var(--border); border-radius:10px; background:var(--bg); color:var(--fg); }
+        .select{ width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:10px; background:var(--bg); color:var(--fg); }
         .tip{ font-size:12px; color:var(--muted); background: rgba(16,185,129,0.08); border:1px solid rgba(16,185,129,0.25); padding:8px 10px; border-radius:10px; }
 
         .table{ width:100%; border-collapse: collapse; font-size:14px; }

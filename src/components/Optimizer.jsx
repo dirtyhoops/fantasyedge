@@ -45,7 +45,7 @@ export default function Optimizer() {
 				>
 					<div className='field' style={{ gridColumn: 'span 4' }}>
 						<label className='label'>Team</label>
-						<select className='input'>
+						<select className='select'>
 							<option>My Team (League A)</option>
 							<option>Friends League</option>
 						</select>
@@ -182,7 +182,8 @@ export default function Optimizer() {
         .card{ border:1px solid var(--border); border-radius:16px; background:var(--card); padding:16px 16px; box-shadow: var(--shadow); }
         .card-title{ margin:0 0 10px 0; font-size:16px; font-weight:800; }
         .label{ font-size:12px; color:var(--muted); margin-bottom:6px; display:block; }
-        .input, .select{ width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:10px; background:var(--bg); color:var(--fg); }
+				.input{ width:91%; padding:10px 12px; border:1px solid var(--border); border-radius:10px; background:var(--bg); color:var(--fg); }
+        .select{ width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:10px; background:var(--bg); color:var(--fg); }
         .chip{ display:inline-flex; align-items:center; padding:8px 12px; border-radius:999px; border:1px solid var(--border); font-size:12px; color:var(--fg); background:var(--card); }
         .chip-on{ border-color: transparent; background: var(--accent); color:#fff; }
         .tip{ font-size:12px; color:var(--muted); background: rgba(16,185,129,0.08); border:1px solid rgba(16,185,129,0.25); padding:8px 10px; border-radius:10px; }
