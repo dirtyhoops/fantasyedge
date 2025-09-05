@@ -275,6 +275,10 @@ function DesktopNav({ currentPath }) {
 
 function MobileNav({ currentPath }) {
 	const [open, setOpen] = useState(false);
+	const [scheduleOpen, setScheduleOpen] = useState(
+		currentPath?.startsWith('/schedule')
+	);
+
 	const isActive = (href) =>
 		href === '/schedule'
 			? currentPath.startsWith('/schedule')
@@ -282,13 +286,17 @@ function MobileNav({ currentPath }) {
 
 	return (
 		<>
-			<button
-				aria-label='Open menu'
-				onClick={() => setOpen(true)}
-				className='btn ghost md-hidden'
-			>
-				<IconMenu />
-			</button>
+			{/* Mobile controls in top bar: menu + theme toggle */}
+			<div className='mobile-controls md-hidden'>
+				<button
+					aria-label='Open menu'
+					onClick={() => setOpen(true)}
+					className='btn ghost'
+				>
+					<IconMenu />
+				</button>
+				<ThemeToggle />
+			</div>
 
 			{open && (
 				<div
@@ -300,14 +308,19 @@ function MobileNav({ currentPath }) {
 					<aside onClick={(e) => e.stopPropagation()} className='drawer'>
 						<div className='drawer-head'>
 							<Logo />
-							<button
-								className='btn ghost'
-								onClick={() => setOpen(false)}
-								aria-label='Close'
-							>
-								✕
-							</button>
+							<div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+								{/* Theme toggle in the drawer header as well */}
+								<ThemeToggle />
+								<button
+									className='btn ghost'
+									onClick={() => setOpen(false)}
+									aria-label='Close'
+								>
+									✕
+								</button>
+							</div>
 						</div>
+
 						<div className='drawer-body'>
 							{navItems.map((item) => {
 								if (!item.children) {
@@ -327,41 +340,49 @@ function MobileNav({ currentPath }) {
 										</a>
 									);
 								}
-								// Schedule + nested links (simple inline list)
+
+								// Collapsible "Schedule" group
 								return (
-									<div key='schedule-group' style={{ display: 'grid', gap: 6 }}>
-										<a
-											href={item.href}
-											onClick={() => setOpen(false)}
+									<div key={item.label} style={{ display: 'grid', gap: 6 }}>
+										<button
 											className={
 												isActive(item.href)
 													? 'drawer-link active'
 													: 'drawer-link'
 											}
+											onClick={() => setScheduleOpen((v) => !v)}
+											aria-expanded={scheduleOpen ? 'true' : 'false'}
 										>
 											{item.label}
-										</a>
-										<div style={{ paddingLeft: 16, display: 'grid', gap: 6 }}>
-											{item.children.map((c) => (
-												<a
-													key={c.href}
-													href={c.href}
-													onClick={() => setOpen(false)}
-													className={
-														isActive(c.href)
-															? 'drawer-link active'
-															: 'drawer-link'
-													}
-													style={{ fontSize: 13, opacity: 0.95 }}
-												>
-													{c.label}
-												</a>
-											))}
-										</div>
-										<div className='divider' />
+											<IconChevron
+												className={scheduleOpen ? 'chev open' : 'chev'}
+												style={{ marginLeft: 'auto' }}
+											/>
+										</button>
+										{scheduleOpen && (
+											<div style={{ paddingLeft: 12, display: 'grid', gap: 4 }}>
+												{item.children.map((c) => (
+													<a
+														key={c.href}
+														href={c.href}
+														onClick={() => setOpen(false)}
+														className={
+															currentPath === c.href
+																? 'drawer-link active'
+																: 'drawer-link'
+														}
+														style={{ paddingLeft: 24 }}
+													>
+														{c.label}
+													</a>
+												))}
+											</div>
+										)}
 									</div>
 								);
 							})}
+
+							<div className='divider' />
 							<a
 								href='/account'
 								className='btn ghost'
@@ -461,6 +482,8 @@ function Navbar({ currentPath }) {
           border-radius: 2px; background: var(--accent);
           box-shadow: 0 4px 12px rgba(37,99,235,0.35);
         }
+
+				.mobile-controls { display: inline-flex; align-items: center; gap: 8px; }
 
         /* Dropdown */
         .menu{ position:relative; }
